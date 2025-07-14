@@ -1,25 +1,13 @@
-name: Production Release
+name: Hotfix Release
 
 on:
   push:
-    branches: [ master ]
-  workflow_dispatch:
-    inputs:
-      release_type:
-        description: 'Release type'
-        required: true
-        default: 'patch'
-        type: choice
-        options:
-        - patch
-        - minor
-        - major
+    branches: [ hotfix/* ]
 
 jobs:
-  release:
-    name: Create Release & Deploy
+  hotfix:
+    name: Hotfix Release & Deploy
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     
     steps:
     - name: Checkout code
@@ -46,7 +34,17 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         
-    - name: Build and Release
+    - name: Build and test
+      run: |
+        mvn clean compile test -B
+        echo "✅ Build and tests completed successfully"
+        
+    - name: Security scan
+      run: |
+        mvn dependency:check
+        echo "✅ Security scan completed"
+        
+    - name: Create hotfix release
       run: |
         # Get current version
         CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
@@ -54,61 +52,32 @@ jobs:
         
         # Remove -SNAPSHOT suffix for release
         RELEASE_VERSION=$(echo $CURRENT_VERSION | sed 's/-SNAPSHOT//')
-        echo "Release version: $RELEASE_VERSION"
-        
-        # Calculate next development version
-        NEXT_VERSION=$(echo $RELEASE_VERSION | awk -F. '{print $1"."$2+1".0-SNAPSHOT"}')
-        echo "Next development version: $NEXT_VERSION"
-        
-        # Create release branch
-        git checkout -b release/$RELEASE_VERSION
+        echo "Hotfix release version: $RELEASE_VERSION"
         
         # Update version to release version
         mvn versions:set -DnewVersion=$RELEASE_VERSION -DgenerateBackupPoms=false
         
         # Commit release version
         git add .
-        git commit -m "Release version $RELEASE_VERSION"
+        git commit -m "Hotfix release version $RELEASE_VERSION"
         
         # Create tag
-        git tag -a v$RELEASE_VERSION -m "Release version $RELEASE_VERSION"
+        git tag -a v$RELEASE_VERSION -m "Hotfix release version $RELEASE_VERSION"
         
-        # Push release branch and tag
-        git push origin release/$RELEASE_VERSION
+        # Push tag
         git push origin v$RELEASE_VERSION
         
-        # Merge to main
-        git checkout main
-        git merge release/$RELEASE_VERSION --no-ff -m "Merge release $RELEASE_VERSION"
-        git push origin main
-        
-        # Update develop branch with next version
-        git checkout develop
-        git pull origin develop
-        
-        # Update version to next development version
-        mvn versions:set -DnewVersion=$NEXT_VERSION -DgenerateBackupPoms=false
-        
-        # Commit next development version
-        git add .
-        git commit -m "Bump version to $NEXT_VERSION for next development cycle"
-        git push origin develop
-        
-        # Clean up release branch
-        git push origin --delete release/$RELEASE_VERSION
-        
-    - name: Build and Deploy Release
+    - name: Build and Deploy Hotfix
       run: |
         # Build with release profile
         mvn clean install -Prelease -DskipTests
         
         # Build Docker image with release tag
-        echo "🚀 Building docker release - skipped for now..."
-        #docker build -t auth-service:$RELEASE_VERSION .
-        #docker tag auth-service:$RELEASE_VERSION auth-service:latest
+        docker build -t auth-service:$RELEASE_VERSION .
+        docker tag auth-service:$RELEASE_VERSION auth-service:latest
         
         # Deploy to production
-        echo "🚀 Deploying to production..."
+        echo "🚨 Deploying hotfix to production..."
         # Add your production deployment commands here
         # Example: kubectl apply -f k8s/prod/
         
@@ -128,7 +97,7 @@ jobs:
     - name: Upload JAR artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: auth-service-jars
+        name: auth-service-hotfix-jars
         path: |
           auth-service-web/target/*.jar
           auth-service-core/target/*.jar
@@ -157,7 +126,10 @@ jobs:
         COMMIT_RANGE="$PREVIOUS_TAG..HEAD"
         
         # Create release body header
-        echo "## Auth Service Release $CURRENT_VERSION" > release_body.md
+        echo "## Auth Service Hotfix Release $CURRENT_VERSION" > release_body.md
+        echo "" >> release_body.md
+        echo "### 🚨 Emergency Fix" >> release_body.md
+        echo "Critical bug fix for production - deployed immediately." >> release_body.md
         echo "" >> release_body.md
         echo "### 📝 Changes" >> release_body.md
         
@@ -192,14 +164,14 @@ jobs:
         echo '```' >> release_body.md
         echo "" >> release_body.md
         echo "### 📝 Release Trigger" >> release_body.md
-        echo "This release was triggered by a push to the master branch." >> release_body.md
+        echo "This hotfix release was triggered by a push to a hotfix branch." >> release_body.md
         
         # Create release using GitHub CLI
         gh release create v$CURRENT_VERSION \
-          --title "Auth Service $CURRENT_VERSION" \
+          --title "Auth Service Hotfix $CURRENT_VERSION" \
           --notes-file release_body.md \
           --draft=false \
-          --prerelease=false
+          --prerelease=true
         
     - name: Run production tests
       run: |
@@ -209,6 +181,21 @@ jobs:
         
     - name: Monitor deployment
       run: |
-        echo "📊 Monitoring deployment..."
+        echo "📊 Monitoring hotfix deployment..."
         # Add your monitoring commands here
-        # Example: kubectl get pods -l app=auth-service 
+        # Example: kubectl get pods -l app=auth-service
+        
+    - name: Merge to main and develop
+      run: |
+        # Merge hotfix to main
+        git checkout main
+        git merge hotfix/$RELEASE_VERSION --no-ff -m "Merge hotfix $RELEASE_VERSION"
+        git push origin main
+        
+        # Merge hotfix to develop
+        git checkout develop
+        git merge hotfix/$RELEASE_VERSION --no-ff -m "Merge hotfix $RELEASE_VERSION"
+        git push origin develop
+        
+        # Clean up hotfix branch
+        git push origin --delete hotfix/$RELEASE_VERSION 
