@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     mvn clean install -pl auth-service-web -am -DskipTests -s /root/.m2/settings.xml
 
 # === Stage 2: Create the runtime image ===
-FROM amazoncorretto:25-alpine-jdk
+FROM amazoncorretto:27-alpine-jdk
 WORKDIR /app
 
 # Copy the built JAR file from the build stage
