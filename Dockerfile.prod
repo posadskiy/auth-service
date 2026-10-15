@@ -1,5 +1,5 @@
 # === Stage 1: Build the application ===
-FROM maven:3.9.12-amazoncorretto-25-alpine AS build
+FROM maven:3.9-amazoncorretto-25-alpine AS build
 WORKDIR /app
 
 # Accept build arguments for GitHub credentials
